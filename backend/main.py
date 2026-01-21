@@ -5,7 +5,7 @@ from sqlalchemy import create_engine, text
 # ----------------------
 # App setup
 # ----------------------
-app = FastAPI()
+app = FastAPI(title="Wrangling Game API", version="1.0.0")
 
 # ----------------------
 # Database setup (FORCE psycopg v3)
@@ -21,9 +21,25 @@ if DATABASE_URL:
 
     engine = create_engine(DATABASE_URL, pool_pre_ping=True)
 
+
+def require_db():
+    if engine is None:
+        raise HTTPException(
+            status_code=500,
+            detail="Database not configured. Set DATABASE_URL.",
+        )
+    return engine
+
+
 # ----------------------
 # Basic endpoints
 # ----------------------
+@app.get("/")
+def root():
+    # Render/browsers often hit GET /
+    return {"status": "ok", "docs": "/docs", "health": "/health"}
+
+
 @app.get("/health")
 def health():
     return {"ok": True}
@@ -57,37 +73,41 @@ def seed_levels():
     Creates the levels table (if needed) and inserts the 7 fun levels.
     Safe to run multiple times.
     """
-    if engine is None:
-        raise HTTPException(
-            status_code=500,
-            detail="Database not configured. Set DATABASE_URL."
+    db = require_db()
+
+    with db.begin() as conn:
+        # Create table
+        conn.execute(
+            text(
+                """
+                CREATE TABLE IF NOT EXISTS levels (
+                    id SERIAL PRIMARY KEY,
+                    level_number INT UNIQUE NOT NULL,
+                    name TEXT NOT NULL,
+                    description TEXT NOT NULL,
+                    badge_name TEXT NOT NULL
+                )
+                """
+            )
         )
 
-    with engine.begin() as conn:
-        # Create table
-        conn.execute(text("""
-            CREATE TABLE IF NOT EXISTS levels (
-                id SERIAL PRIMARY KEY,
-                level_number INT UNIQUE NOT NULL,
-                name TEXT NOT NULL,
-                description TEXT NOT NULL,
-                badge_name TEXT NOT NULL
-            )
-        """))
-
         # Insert levels (idempotent)
-        conn.execute(text("""
-            INSERT INTO levels (level_number, name, description, badge_name)
-            VALUES
-            (1, 'The Data Detective', 'Inspect and understand messy data', 'Data Detective'),
-            (2, 'The Janitor’s Revenge', 'Clean missing values and duplicates', 'Data Janitor'),
-            (3, 'The Filter Wizard', 'Filter and index data safely', 'Filter Wizard'),
-            (4, 'The String Surgeon', 'Fix strings and dates', 'String Surgeon'),
-            (5, 'The Join Assassin', 'Join datasets without explosions', 'Join Assassin'),
-            (6, 'The Shape Shifter', 'Reshape data correctly', 'Shape Shifter'),
-            (7, 'The Data Alchemist', 'End-to-end wrangling challenge', 'Data Alchemist')
-            ON CONFLICT (level_number) DO NOTHING
-        """))
+        conn.execute(
+            text(
+                """
+                INSERT INTO levels (level_number, name, description, badge_name)
+                VALUES
+                (1, 'The Data Detective', 'Inspect and understand messy data', 'Data Detective'),
+                (2, 'The Janitor’s Revenge', 'Clean missing values and duplicates', 'Data Janitor'),
+                (3, 'The Filter Wizard', 'Filter and index data safely', 'Filter Wizard'),
+                (4, 'The String Surgeon', 'Fix strings and dates', 'String Surgeon'),
+                (5, 'The Join Assassin', 'Join datasets without explosions', 'Join Assassin'),
+                (6, 'The Shape Shifter', 'Reshape data correctly', 'Shape Shifter'),
+                (7, 'The Data Alchemist', 'End-to-end wrangling challenge', 'Data Alchemist')
+                ON CONFLICT (level_number) DO NOTHING
+                """
+            )
+        )
 
     return {"ok": True, "message": "Levels table created and seeded"}
 
@@ -100,16 +120,17 @@ def get_levels():
     """
     Returns all game levels with their badge names.
     """
-    if engine is None:
-        raise HTTPException(
-            status_code=500,
-            detail="Database not configured. Set DATABASE_URL."
-        )
+    db = require_db()
 
-    with engine.connect() as conn:
-        result = conn.execute(text("""
-            SELECT level_number, name, description, badge_name
-            FROM levels
-            ORDER BY level_number
-        """))
+    with db.connect() as conn:
+        result = conn.execute(
+            text(
+                """
+                SELECT level_number, name, description, badge_name
+                FROM levels
+                ORDER BY level_number
+                """
+            )
+        )
         return [dict(row) for row in result.mappings()]
+
