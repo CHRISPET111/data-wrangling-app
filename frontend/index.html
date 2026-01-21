@@ -1,0 +1,128 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Data Wrangling Quest</title>
+  <style>
+    body { font-family: Arial, sans-serif; max-width: 900px; margin: 30px auto; padding: 0 16px; }
+    .row { display:flex; gap:12px; flex-wrap: wrap; align-items:center; }
+    button { padding:10px 14px; cursor:pointer; }
+    .card { border:1px solid #ddd; border-radius:12px; padding:14px; margin:12px 0; }
+    .badge { display:inline-block; padding:4px 10px; border:1px solid #bbb; border-radius:999px; font-size:12px; }
+    .muted { color:#666; font-size:14px; }
+    .error { color: #b00020; white-space: pre-wrap; }
+    .ok { color: #0a7a0a; white-space: pre-wrap; }
+    input { padding:10px; min-width: 360px; }
+  </style>
+</head>
+<body>
+  <h1>🧪 Data Wrangling Quest</h1>
+  <p class="muted">7 levels. Each completed level earns a badge.</p>
+
+  <div class="card">
+    <div class="row">
+      <label><b>API Base URL</b></label>
+      <input id="apiBase" />
+      <button id="saveApi">Save</button>
+    </div>
+    <p class="muted">Example: https://data-wrangling-api.onrender.com</p>
+  </div>
+
+  <div class="card">
+    <div class="row">
+      <button id="seedBtn">Seed Levels (Run once)</button>
+      <button id="loadBtn">Load Levels</button>
+      <button id="healthBtn">Health Check</button>
+    </div>
+    <div id="status" class="muted"></div>
+    <div id="out"></div>
+  </div>
+
+  <div id="levels"></div>
+
+  <script>
+    const apiInput = document.getElementById("apiBase");
+    const out = document.getElementById("out");
+    const levelsDiv = document.getElementById("levels");
+    const status = document.getElementById("status");
+
+    function getApiBase() {
+      return (localStorage.getItem("API_BASE") || "").replace(/\/$/, "");
+    }
+    function setApiBase(v) {
+      localStorage.setItem("API_BASE", v.replace(/\/$/, ""));
+    }
+    function show(obj, ok=true) {
+      out.className = ok ? "ok" : "error";
+      out.textContent = typeof obj === "string" ? obj : JSON.stringify(obj, null, 2);
+    }
+    function setStatus(msg) { status.textContent = msg; }
+
+    apiInput.value = getApiBase() || "https://data-wrangling-api.onrender.com";
+
+    document.getElementById("saveApi").onclick = () => {
+      setApiBase(apiInput.value.trim());
+      setStatus("Saved API base.");
+    };
+
+    async function call(path, options={}) {
+      const base = getApiBase() || apiInput.value.trim();
+      const url = base.replace(/\/$/, "") + path;
+      setStatus("Calling " + url + " ...");
+      const res = await fetch(url, {
+        headers: { "Content-Type": "application/json" },
+        ...options
+      });
+      const text = await res.text();
+      let data;
+      try { data = JSON.parse(text); } catch { data = text; }
+      if (!res.ok) throw new Error(typeof data === "string" ? data : JSON.stringify(data));
+      setStatus("Done.");
+      return data;
+    }
+
+    document.getElementById("healthBtn").onclick = async () => {
+      try {
+        const data = await call("/health");
+        show(data, true);
+      } catch (e) {
+        show(String(e), false);
+      }
+    };
+
+    document.getElementById("seedBtn").onclick = async () => {
+      try {
+        const data = await call("/seed", { method: "POST" });
+        show(data, true);
+      } catch (e) {
+        show(String(e), false);
+      }
+    };
+
+    document.getElementById("loadBtn").onclick = async () => {
+      try {
+        const levels = await call("/levels");
+        show({ loaded_levels: levels.length }, true);
+        renderLevels(levels);
+      } catch (e) {
+        show(String(e), false);
+      }
+    };
+
+    function renderLevels(levels) {
+      levelsDiv.innerHTML = "";
+      for (const l of levels) {
+        const card = document.createElement("div");
+        card.className = "card";
+        card.innerHTML = `
+          <h3>Level ${l.level_number}: ${l.name}</h3>
+          <p class="muted">${l.description}</p>
+          <div class="badge">🏅 Badge: ${l.badge_name}</div>
+        `;
+        levelsDiv.appendChild(card);
+      }
+    }
+  </script>
+</body>
+</html>
