@@ -8,15 +8,18 @@ from sqlalchemy import create_engine, text
 app = FastAPI()
 
 # ----------------------
-# Database setup
+# Database setup (FORCE psycopg v3)
 # ----------------------
 DATABASE_URL = os.getenv("DATABASE_URL")
 
-if not DATABASE_URL:
-    engine = None
-else:
-    engine = create_engine(DATABASE_URL, pool_pre_ping=True)
+engine = None
+if DATABASE_URL:
+    # Render sometimes provides "postgres://" or "postgresql://"
+    # Force SQLAlchemy to use psycopg (v3) driver:
+    DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://")
+    DATABASE_URL = DATABASE_URL.replace("postgresql://", "postgresql+psycopg://")
 
+    engine = create_engine(DATABASE_URL, pool_pre_ping=True)
 
 # ----------------------
 # Basic endpoints
@@ -55,7 +58,10 @@ def seed_levels():
     Safe to run multiple times.
     """
     if engine is None:
-        raise HTTPException(status_code=500, detail="Database not configured. Set DATABASE_URL.")
+        raise HTTPException(
+            status_code=500,
+            detail="Database not configured. Set DATABASE_URL."
+        )
 
     with engine.begin() as conn:
         # Create table
@@ -95,7 +101,10 @@ def get_levels():
     Returns all game levels with their badge names.
     """
     if engine is None:
-        raise HTTPException(status_code=500, detail="Database not configured. Set DATABASE_URL.")
+        raise HTTPException(
+            status_code=500,
+            detail="Database not configured. Set DATABASE_URL."
+        )
 
     with engine.connect() as conn:
         result = conn.execute(text("""
