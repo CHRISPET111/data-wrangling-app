@@ -1,11 +1,26 @@
 import os
 from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import HTMLResponse
 from sqlalchemy import create_engine, text
 
 # ----------------------
 # App setup
 # ----------------------
 app = FastAPI(title="Wrangling Game API", version="1.0.0")
+
+# ----------------------
+# CORS (needed if you later add a separate React UI)
+# ----------------------
+ALLOWED_ORIGINS = os.getenv("ALLOWED_ORIGINS", "http://localhost:5173").split(",")
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[o.strip() for o in ALLOWED_ORIGINS if o.strip()],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 # ----------------------
 # Database setup (FORCE psycopg v3)
@@ -37,7 +52,7 @@ def require_db():
 @app.get("/")
 def root():
     # Render/browsers often hit GET /
-    return {"status": "ok", "docs": "/docs", "health": "/health"}
+    return {"status": "ok", "ui": "/app", "docs": "/docs", "health": "/health"}
 
 
 @app.get("/health")
@@ -65,6 +80,86 @@ def db_check():
 
 
 # ----------------------
+# Minimal UI (fastest way to "open the app" in a browser)
+# ----------------------
+@app.get("/app", response_class=HTMLResponse)
+def app_ui():
+    return """
+    <!doctype html>
+    <html>
+      <head>
+        <meta charset="utf-8" />
+        <meta name="viewport" content="width=device-width,initial-scale=1" />
+        <title>Wrangling Game</title>
+        <style>
+          body { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; margin: 24px; }
+          button { padding: 10px 14px; border-radius: 10px; border: 1px solid #ccc; cursor: pointer; margin-right: 8px; }
+          .card { border: 1px solid #eee; border-radius: 14px; padding: 14px; margin-top: 12px; }
+          .muted { color: #666; }
+          pre { background:#f6f6f6; padding:12px; border-radius:12px; overflow:auto; }
+        </style>
+      </head>
+      <body>
+        <h1>Wrangling Game</h1>
+        <p class="muted">Simple UI served by FastAPI</p>
+
+        <div>
+          <button onclick="seed()">Seed DB</button>
+          <button onclick="loadLevels()">Load Levels</button>
+        </div>
+
+        <pre id="status"></pre>
+        <div id="out"></div>
+
+        <script>
+          const statusEl = document.getElementById('status');
+          const outEl = document.getElementById('out');
+
+          function setStatus(msg) {
+            statusEl.textContent = msg || '';
+          }
+
+          async function seed() {
+            try {
+              setStatus("Seeding...");
+              const res = await fetch('/seed', { method: 'POST' });
+              const data = await res.json();
+              setStatus(JSON.stringify(data, null, 2));
+            } catch (e) {
+              setStatus("Seed failed: " + e);
+            }
+          }
+
+          async function loadLevels() {
+            try {
+              setStatus("Loading levels...");
+              const res = await fetch('/levels');
+              const levels = await res.json();
+
+              outEl.innerHTML = "";
+              levels.forEach(l => {
+                const div = document.createElement('div');
+                div.className = 'card';
+                div.innerHTML = `
+                  <div><b>Level ${l.level_number}: ${l.name}</b></div>
+                  <div class="muted">${l.description}</div>
+                  <div style="margin-top:8px;">🏅 Badge: <b>${l.badge_name}</b></div>
+                `;
+                outEl.appendChild(div);
+              });
+
+              setStatus("");
+            } catch (e) {
+              setStatus("Load failed: " + e);
+            }
+          }
+        </script>
+      </body>
+    </html>
+    """
+
+
+# ----------------------
 # Seed levels into the database (run once)
 # ----------------------
 @app.post("/seed")
@@ -76,7 +171,6 @@ def seed_levels():
     db = require_db()
 
     with db.begin() as conn:
-        # Create table
         conn.execute(
             text(
                 """
@@ -91,7 +185,6 @@ def seed_levels():
             )
         )
 
-        # Insert levels (idempotent)
         conn.execute(
             text(
                 """
@@ -133,4 +226,3 @@ def get_levels():
             )
         )
         return [dict(row) for row in result.mappings()]
-
